@@ -4,9 +4,9 @@ moca.pipeline <- function(mat, groups=NULL, gene.whitelist=NULL, gene.screening.
                           max.size=5, max.merges=1e3, max.dist=1, max.p=0.05, alpha.bonferroni=max.p, max.interesting=10,
                           consider=c("subclusters","original","maximalonly"),
                           merge.types=FALSE,merge.duplicates=FALSE,test.by.prefix=FALSE,
-                          randomised=FALSE,
+                          randomised=TRUE,
                           save.results=NULL,na.action=NA.as.FALSE) {
-  # This function runs the whole moca.pipeline starting from a binary matrix of mutations.
+  # This function runs the whole moca pipeline starting from a binary matrix of mutations.
   # 
   # INPUT:
   # mat: Either 1) A binary matrix with genes/alterations in rows and samples in columns
@@ -18,7 +18,7 @@ moca.pipeline <- function(mat, groups=NULL, gene.whitelist=NULL, gene.screening.
   #         Statistical analysis is perfomed on each cancer type separately and then combined using Stouffer's method.
   #         groups will be generated automatically if multiple mutation matrices are loaded.
   # gene.whitelist: Either 1) A vector of the rownames in mat which should be used (length>>1)
-  #                        2) The filepath of a file containing such a vector in plain test (length==1)
+  #                        2) The filepath of a file containing such a vector in plain text (length==1)
   # gene.screening.function: A function to select genes based on their mutation counts (input=mat, output=mat with some rows removed)
   #                          By default only genes with a number of mutations greater than log2(number of genes kept) are kept.
   #                          Other options would be for example function(x){x[rowSums(x)>=10,,drop=FALSE]} or function(x){x[rowSums(x)>=0.1*ncol(x),,drop=FALSE]}.
@@ -29,8 +29,9 @@ moca.pipeline <- function(mat, groups=NULL, gene.whitelist=NULL, gene.screening.
   #           A sensible lower choice for this value might be 1/(number of genes used), since no multiple hypothesis testing
   #           correction is performed at this stage.
   # max.p: The threshold for significance to report a gene set. (Note that a weighted Bonferroni correction is performed)
-  # alpha.bonferroni: (An upper bound on) the threshold for significance to include an additional alteration in a gene set.
-  #                   equal to max.p by default.
+  # alpha.bonferroni: Used to compute weights for the weighted Bonferroni correction.
+  #                   (An upper bound on) the threshold for significance to include an additional alteration in a gene set.
+  #                   Equal to max.p by default.
   # max.interesting: The maximum number of interesting examples to report.
   # consider: If "original", then all candidate gene sets are considered.
   #           If "maximalonly", only maximal candidate gene sets are considered. (not recommended)
@@ -753,14 +754,16 @@ representative.clusters <- function(clusters,mat=NULL,n=Inf,max.p.value=0.05,pva
 }
 
 
-subset.bonferroni <- function(n,k,nmax=n,kmin=2,kmax=k,order=c("size","stratifiedsize","genesize","simple"),alpha=0.05) {
-  # We will assume that order="size" (default)
+subset.bonferroni <- function(n,k,nmax=n,kmin=2,kmax=k,order=c("size","sizeapprox","stratifiedsize","genesize","simple"),alpha=0.05) {
+  # We will assume in this explanation that order="size" (default)
   # computes the weighted Bonferroni correction for a gene set of size k
   # n|nmax is the number of genes to choose from
   # kmin, kmax are the smallest (resp. largest) number of genes allowed in a gene set
   # the weight is chosen such that the probability of a passenger mutation being added
   # to an alteration set is less than alpha
   #(explanation of the order types:
+  # sizeapprox: same as size but uses an appproximate formula valid for small alpha, large n annd large kmax.
+  #   This can be used when "size" returns NaN due to overflow.
   # simple: unweighted bonferroni correction
   # genesize: order the hypotheses by the coverage of the least mutated gene
   # stratified size: perform a Bonferroni correction separately for each set size, and then for the allowed range of gene set sizes.)
@@ -768,6 +771,9 @@ subset.bonferroni <- function(n,k,nmax=n,kmin=2,kmax=k,order=c("size","stratifie
   if(order=="size") {
     #\frac{\sum_{\ell=2}^{\kmax}{m \choose \ell}\prod_{k=2}^{\ell}\left(1-(1-\alpha)^\frac{1}{m-k+1}\right)}{\prod_{k=2}^{|M|}\left(1-(1-\alpha)^\frac{1}{m-k+1}\right)}
     return(sum(choose(nmax,kmin:kmax)*cumprod(-expm1(log1p(-alpha)/(nmax+1-kmin:kmax))))/prod(-expm1(log1p(-alpha)/(nmax+1-kmin:k))))
+  }
+  if(order=="sizeapprox") {
+    return((expm1(alpha)-alpha)*prod((n-k+1):n)/alpha^k)
   }
 #   if(order=="size") {
 #     return(choose(nmax,k)*factorial(k)/sum(((2*alpha)^(kmin:kmax)/factorial(kmin:kmax)))*(2*alpha)^(-k))
